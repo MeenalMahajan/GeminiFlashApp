@@ -45,3 +45,4 @@ struct ChatMessage: Identifiable,Equatable {
         return lhs.id == rhs.id
     }
 }
+
