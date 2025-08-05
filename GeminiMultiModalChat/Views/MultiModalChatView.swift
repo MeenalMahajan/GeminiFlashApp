@@ -34,9 +34,10 @@ struct MultiModalChatView: View {
                 
                 ScrollView(showsIndicators: false) {
                     
-                    ForEach(chatService.messages){ chatMessage in
+                    ForEach(chatService.messages){ message in
                         //MARK: chat message view
-                       // chatMessageView(chatMessage)
+                       chatMessageView(message)
+                            .id(message.id)
                     }
                     
                 }
@@ -66,6 +67,8 @@ struct MultiModalChatView: View {
                             }
                         }
                     }
+                    .frame(height: 50)
+                    .padding(.bottom,8)
                 }
                 
                 HStack{
@@ -82,13 +85,11 @@ struct MultiModalChatView: View {
                                 .frame(width: 40,height: 25)
                         }
                     }
+                    .disabled(chatService.loadingResponse)
                     .confirmationDialog("What would you like to attach?",
                                         isPresented: $showAttachmentsOption,
                                         titleVisibility: .visible) {
-                        Button("Images") {
-                            showPhotoPicker.toggle()
-                        }
-                        Button("Videos") {
+                        Button("Images/Videos") {
                             showPhotoPicker.toggle()
                         }
                         Button("Documents") {
@@ -99,11 +100,45 @@ struct MultiModalChatView: View {
                                    maxSelectionCount: 2,
                                    matching: .any(of: [.images,.videos]))
                     .onChange(of: photoPickerItems) { _,_ in
-                        
+                        Task{
+                            loadingMedia.toggle()
+                            selectedMedia.removeAll()
+                            for item in photoPickerItems{
+                                do{
+                                    let (mimeType, data, thumbnail) = try await MediaService().processPhotoPickerItem(for: item)
+                                    selectedMedia.append(.init(mimeType: mimeType, data: data, thumbnail: thumbnail))
+                                    
+                                    
+                                }catch{
+                                    print(error.localizedDescription)
+                                }
+                            }
+                            
+                            loadingMedia.toggle()
+                        }
                     }
                     .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.pdf,.text], allowsMultipleSelection: true) { result in
+                       
                         selectedMedia.removeAll()
                         loadingMedia.toggle()
+                        
+                        switch result{
+                        case .success(let urls):
+                            for url in urls{
+                                do{
+                                    let (mimeType, data, thumbnail) = try MediaService().processDocumentItem(for: url)
+                                    selectedMedia.append(.init(mimeType: mimeType, data: data, thumbnail: thumbnail))
+                                   
+                                }catch{
+                                    print(error.localizedDescription)
+                                }
+                            }
+                            
+                        case .failure(let failure):
+                            print(failure.localizedDescription)
+                        }
+                        loadingMedia.toggle()
+                        
                     }
                     
                     
@@ -190,6 +225,13 @@ struct MultiModalChatView: View {
         guard !textInput.isEmpty else {
             showEmptyTextAlert = true
             return
+        }
+        
+        Task{
+            let chatMedia = selectedMedia
+            selectedMedia.removeAll()
+            await chatService.sendMessage(message: textInput, media: chatMedia)
+            textInput = ""
         }
     }
     
